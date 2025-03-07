@@ -19,7 +19,7 @@ for file in files:
     raw = rawpy.imread(file)
     rgb = raw.postprocess()
     rgbs.append(rgb)
-    
+    rgbs[0]
     #plt.imshow(rgb)
     #plt.show()
 
@@ -103,13 +103,13 @@ img_matches = cv2.drawMatches(rgbs[0], keypoints1, rgbs[1], keypoints2, good_inl
 cv2.imshow('Inlier Matches', img_matches)
 cv2.waitKey(0)
 cv2.destroyAllWindows()
-'''
+
 
 # Warp image1 into the reference frame of image2 using the homography matrix
-height, width, _ = rgbs[1].shape
-warped_image1 = cv2.warpPerspective(rgbs[0], H, (width, height))
+height, width, _ = rgbs[0].shape
+warped_image1 = cv2.warpPerspective(rgbs[1], H, (width, height))
 
-mosaic = np.copy(rgbs[1])
+mosaic = np.copy(rgbs[0])
 
 mask_warped = np.all(warped_image1 == 0, axis=-1)
 
@@ -122,14 +122,15 @@ for y in range(height):
 cv2.imshow('Mosaic', mosaic)
 cv2.waitKey(0)
 cv2.destroyAllWindows()
+'''
+# Warp image 2 (rgbs[1]) into the reference frame of image 1 (rgbs[0])
+height1, width1 = rgbs[0].shape[:2]
+height2, width2 = rgbs[1].shape[:2]
 
+# Warp image 2
+warped_image2 = cv2.warpPerspective(rgbs[1], H, (width1, height1))
 
-
-
-
-
-
-
-
-
-
+# Display the warped image
+cv2.imshow("Warped Image 2", warped_image2)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
