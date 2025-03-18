@@ -12,180 +12,131 @@ import cv2
 import matplotlib.pyplot as plt
 
 
-files = ['11.dng', '54.dng', '07.dng', '02.dng', '16.dng', '23.dng', '31.dng']
-rgbs = []
-# Open and process RAW file
-for file in files:
-    raw = rawpy.imread(file)
-    rgb = raw.postprocess()
-    rgbs.append(rgb)
-    #rgbs[0]
-    #plt.imshow(rgb)
-    #plt.show()
+import rawpy
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
 
-'''
-# Display image
-plt.imshow(rgbs[2])
-plt.show() '''
+# Read raw images and postprocess them
+raw1 = rawpy.imread("0.dng")
+img1 = raw1.postprocess(half_size=True)
+raw2 = rawpy.imread("-1.dng")
+img2 = raw2.postprocess(half_size=True)
+raw3 = rawpy.imread("1.dng")
+img3 = raw3.postprocess(half_size=True)
+raw4 = rawpy.imread("-3.dng")
+img4 = raw4.postprocess(half_size=True)
 
-gray1 = cv2.cvtColor(rgbs[2], cv2.COLOR_BGR2GRAY)
-gray2 = cv2.cvtColor(rgbs[6], cv2.COLOR_BGR2GRAY)
 
+scale_factor = 0.5  # Change to desired scaling factor
+img1 = cv2.resize(img1, (0, 0), fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_AREA)
+img2 = cv2.resize(img2, (0, 0), fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_AREA)
+img3 = cv2.resize(img3, (0, 0), fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_AREA)
+img4 = cv2.resize(img4, (0, 0), fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_AREA)
+
+# Convert to grayscale for feature detection
+gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+gray3 = cv2.cvtColor(img3, cv2.COLOR_BGR2GRAY)
+gray4 = cv2.cvtColor(img4, cv2.COLOR_BGR2GRAY)
+
+# Initialize SIFT detector
 sift = cv2.SIFT_create()
 
-keypoints1, descriptors1 = sift.detectAndCompute(gray1, None)
-keypoints2, descriptors2 = sift.detectAndCompute(gray2, None)
+# Detect keypoints and descriptors for image 1, image 2, and image 3
+kp1, des1 = sift.detectAndCompute(gray1, None)
+kp2, des2 = sift.detectAndCompute(gray2, None)
+kp3, des3 = sift.detectAndCompute(gray3, None)
+kp4, des4 = sift.detectAndCompute(gray4, None)
 
-img1_with_keypoints = cv2.drawKeypoints(rgbs[2], keypoints1, None)
-img2_with_keypoints = cv2.drawKeypoints(rgbs[6], keypoints2, None)
+# Function to compute homography between image A (reference) and image B (to be warped)
+def compute_homography(desA, desB, kpA, kpB):
+    bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
+    matches = bf.knnMatch(desA, desB, k=2)
 
-#plt.imshow(img1_with_keypoints)
-#plt.show()
+    good_matches = []
+    for m, n in matches:
+        if m.distance < 0.75 * n.distance:
+            good_matches.append(m)
+    if len(good_matches) < 4:
+        raise ValueError("Not enough good matches!")
 
-#plt.imshow(img2_with_keypoints)
-#plt.show()
+    ptsA = np.float32([kpA[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+    ptsB = np.float32([kpB[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
 
-#print(keypoints1, keypoints2)
+    H, mask = cv2.findHomography(ptsB, ptsA, cv2.RANSAC, 5.0)
+    if H is None:
+        raise ValueError("Homography computation failed!")
+    return H
 
-if len(keypoints1) == 0:
-    print("No keypoints detected in image 1")
-else:
-    print(f"Detected {len(keypoints1)} keypoints in image 1")
+# Compute homographies: H2 warps img2 to img1, H3 warps img3 to img1
+H2 = compute_homography(des1, des2, kp1, kp2)
+print("Homography for img2:\n", H2)
+H3 = compute_homography(des1, des3, kp1, kp3)
+print("Homography for img3:\n", H3)
+H4 = compute_homography(des1, des4, kp1, kp4)
+print("Homography for img3:\n", H4)
 
-if len(keypoints2) == 0:
-    print("No keypoints detected in image 2")
-else:
-    print(f"Detected {len(keypoints2)} keypoints in image 2")
-'''
-cv2.imshow('Image 1 Keypoints', img1_with_keypoints)
-cv2.imshow('Image 2 Keypoints', img2_with_keypoints)
+# Get dimensions for images
+h1, w1 = img1.shape[:2]
+h2, w2 = img2.shape[:2]
+h3, w3 = img3.shape[:2]
+h4, w4 = img4.shape[:2]
+# Compute corners for each image in the coordinate system of image1
+corners_img1 = np.float32([[0, 0], [0, h1], [w1, h1], [w1, 0]]).reshape(-1, 1, 2)
 
-cv2.waitKey(0)
-cv2.destroyAllWindows()
-'''
-bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
-matches = bf.knnMatch(descriptors1, descriptors2, k=2)
+# For image 2
+corners_img2 = np.float32([[0, 0], [0, h2], [w2, h2], [w2, 0]]).reshape(-1, 1, 2)
+warped_corners_img2 = cv2.perspectiveTransform(corners_img2, H2)
 
-good_matches = []
-for m, n in matches:
-    if m.distance < 0.75 * n.distance:
-        good_matches.append(m)
+# For image 3
+corners_img3 = np.float32([[0, 0], [0, h3], [w3, h3], [w3, 0]]).reshape(-1, 1, 2)
+warped_corners_img3 = cv2.perspectiveTransform(corners_img3, H3)
 
-#img_matches = cv2.drawMatches(rgbs[0], keypoints1, rgbs[1], keypoints2, good_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-
-print(f"Number of good matches: {len(good_matches)}")
-
-# If no good matches, print a message
-if len(good_matches) == 0:
-    print("No good matches found!")
-else:
-    # Draw the good matches
-    img_matches = cv2.drawMatches(rgbs[2], keypoints1, rgbs[6], keypoints2, good_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-'''
-    # Display the matched image
-    cv2.imshow('Matched Keypoints', img_matches)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-'''
-pts1 = np.float32([keypoints1[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-pts2 = np.float32([keypoints2[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-
-H, mask = cv2.findHomography(pts1, pts2, cv2.RANSAC, 5.0)
-# Print the homography matrix
-print("Homography Matrix:\n", H)
-
-inliers = mask.ravel() == 1
-good_inliers = [good_matches[i] for i in range(len(good_matches)) if inliers[i]]
-
-# Draw the matches (only inliers)
-img_matches = cv2.drawMatches(rgbs[2], keypoints1, rgbs[6], keypoints2, good_inliers, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-'''
-cv2.imshow('Inlier Matches', img_matches)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+# For image 4
+corners_img4 = np.float32([[0, 0], [0, h4], [w4, h4], [w4, 0]]).reshape(-1, 1, 2)
+warped_corners_img4 = cv2.perspectiveTransform(corners_img4, H4)
 
 
-# Warp image1 into the reference frame of image2 using the homography matrix
-height, width, _ = rgbs[0].shape
-warped_image1 = cv2.warpPerspective(rgbs[1], H, (width, height))
-
-mosaic = np.copy(rgbs[0])
-
-mask_warped = np.all(warped_image1 == 0, axis=-1)
-
-for y in range(height):
-    for x in range(width):
-        if not mask_warped[y, x]:
-            mosaic[y, x] = warped_image1[y, x]
-
-# Display the result
-cv2.imshow('Mosaic', mosaic)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
-
-# Warp image 2 (rgbs[1]) into the reference frame of image 1 (rgbs[0])
-height1, width1 = rgbs[0].shape[:2]
-height2, width2 = rgbs[1].shape[:2]
-
-# Warp image 2
-warped_image2 = cv2.warpPerspective(rgbs[1], H, (width1, height1))
-
-# Display the warped image
-cv2.imshow("Warped Image 2", warped_image2)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
-'''
-
-# Get dimensions of image1 (reference) and image2
-height1, width1 = rgbs[0].shape[:2]
-height2, width2 = rgbs[1].shape[:2]
-
-# Define the corner points of image1 and image2
-corners_image1 = np.float32([[0, 0], [width1, 0], [width1, height1], [0, height1]]).reshape(-1, 1, 2)
-corners_image2 = np.float32([[0, 0], [width2, 0], [width2, height2], [0, height2]]).reshape(-1, 1, 2)
-
-# Warp image2 corners to image1's coordinate frame using the homography matrix
-warped_corners_image2 = cv2.perspectiveTransform(corners_image2, H)
-
-# Combine the corners of image1 and the warped image2 to determine the overall bounds
-all_corners = np.concatenate((corners_image1, warped_corners_image2), axis=0)
+# Combine all corners to determine the panorama dimensions
+all_corners = np.concatenate((corners_img1, warped_corners_img2, warped_corners_img3, warped_corners_img4), axis=0)
 [x_min, y_min] = np.int32(all_corners.min(axis=0).ravel() - 0.5)
 [x_max, y_max] = np.int32(all_corners.max(axis=0).ravel() + 0.5)
 
-# Compute the size of the panorama canvas
-panorama_width = x_max - x_min
-panorama_height = y_max - y_min
+# Define an extra left margin (shift to right)
+extra_margin_x = 800  # Increase this value to have more room on the left
+extra_margin_y = 1000
 
-# Compute the translation that shifts the panorama so that all coordinates are positive
-translation = np.array([[1, 0, -x_min],
-                        [0, 1, -y_min],
-                        [0, 0, 1]], dtype=np.float32)
+# Update the translation distance to include extra margin on the x-axis
+translation_dist = [-x_min + extra_margin_x, -y_min + extra_margin_y]
+T = np.array([[1, 0, translation_dist[0]],
+              [0, 1, translation_dist[1]],
+              [0, 0, 1]])
 
-# --------------------------------------------------------------------
-# STEP 2: Warp image2 into the new panorama canvas
-# --------------------------------------------------------------------
-# Adjust homography by the translation to get the correct warped image2
-H_translated = translation.dot(H)
-warped_image2 = cv2.warpPerspective(rgbs[1], H_translated, (panorama_width, panorama_height))
+# Adjust panorama size; add extra margin width to account for the shift.
+#panorama_width = (x_max - x_min) + extra_margin + 1000  # You can adjust the extra width if needed
+panorama_width = (x_max - x_min) + extra_margin_x
+#panorama_height = (y_max - y_min) + 2000  # Adjust as needed
+panorama_height = (y_max - y_min) + extra_margin_y
+panorama_size = (panorama_width, panorama_height)
 
-# --------------------------------------------------------------------
-# STEP 3: Place image1 into the panorama canvas
-# --------------------------------------------------------------------
-# Create a canvas for the panorama
-panorama = np.zeros((panorama_height, panorama_width, 3), dtype=np.uint8)
-# Place image1 at the appropriate translated location
-panorama[-y_min:height1 - y_min, -x_min:width1 - x_min] = rgbs[0]
+# Warp image 2 and image 3 into image1's coordinate system using the new translation
+warped_img2 = cv2.warpPerspective(img2, T.dot(H2), panorama_size, borderMode=cv2.BORDER_TRANSPARENT)
+warped_img3 = cv2.warpPerspective(img3, T.dot(H3), panorama_size, borderMode=cv2.BORDER_TRANSPARENT)
+warped_img4 = cv2.warpPerspective(img4, T.dot(H4), panorama_size, borderMode=cv2.BORDER_TRANSPARENT)
+# Create a canvas and place image 1 into the panorama at the translated position
+panorama = np.zeros((panorama_size[1], panorama_size[0], 3), dtype=np.uint8)
+panorama[translation_dist[1]:translation_dist[1]+h1, translation_dist[0]:translation_dist[0]+w1] = img1
 
-# --------------------------------------------------------------------
-# STEP 4: Composite the images to form the panorama
-# --------------------------------------------------------------------
-# Create a mask from the warped image2 where there is valid data (non-black pixels)
-mask_warped = np.any(warped_image2 != 0, axis=2)
+# Composite the warped images onto the canvas.
+mask2 = (warped_img2 > 0)
+mask3 = (warped_img3 > 0)
+mask4 = (warped_img4 > 0)
+panorama[mask2] = warped_img2[mask2]
+panorama[mask3] = warped_img3[mask3]
+#panorama[mask4] = warped_img4[mask4]
 
-# For overlapping regions, you could blend or simply override. Here we override.
-panorama[mask_warped] = warped_image2[mask_warped]
-
-# Display the final panorama
-cv2.imshow("Panorama", panorama)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+plt.imshow(cv2.cvtColor(panorama, cv2.COLOR_BGR2RGB))
+plt.title("Stitched Panorama")
+plt.axis('off')
+plt.show()
